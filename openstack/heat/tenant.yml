@@ -1,0 +1,74 @@
+heat_template_version: 2013-05-23
+description: create new tenant
+
+parameters:
+  external_net:
+    type: string
+    description:  'External network for internet'
+  private_net_cidr:
+    type: string
+    description: 'Openstack internal network CIDR'
+    hidden: true
+
+resources:
+  pdc_project:
+    type: OS::Keystone::Project
+    properties:
+      name: { get_param: 'OS::stack_name' }
+
+  pdc_password:
+    type: OS::Heat::RandomString
+    properties:
+      character_classes: [{"class": lettersdigits, "min": 8}]
+      length: 8
+
+  pdc_user:
+    type: OS::Keystone::User
+    properties:
+      name: { get_param: 'OS::stack_name' }
+      domain: default
+      enabled: true
+      password: {get_resource: pdc_password }
+      default_project: {get_resource: pdc_project}
+      roles: [
+        { role: heat_stack_owner,
+        project: { get_resource: pdc_project } },
+        { role: _member_,
+        project: { get_resource: pdc_project } } ]
+
+  pdc_net:
+    type: OS::Neutron::Net
+    properties:
+      name:
+        list_join: ['-', [ {get_param: 'OS::stack_name'}, 'VXLAN-net']]
+      tenant_id: { get_resource: pdc_project }
+
+  pdc_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      name:
+        list_join: ['-', [ {get_param: 'OS::stack_name'}, 'priv-subnet']]
+      network_id: { get_resource: pdc_net }
+      cidr: {get_param: private_net_cidr}
+      dns_nameservers: [ "172.31.192.2" ]
+      ip_version: 4
+      tenant_id: { get_resource: pdc_project }
+
+  pdc_router:
+    type: OS::Neutron::Router
+    properties:
+      name:
+        list_join: ['-', [ {get_param: 'OS::stack_name'}, 'router']]
+      external_gateway_info: { network: { get_param: external_net } }
+
+  pdc_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: pdc_router }
+      subnet: { get_resource: pdc_subnet }
+
+outputs:
+  user_password:
+     description: Password for user
+     value: { get_resource: pdc_password }
+
