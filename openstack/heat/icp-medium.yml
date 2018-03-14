@@ -13,8 +13,8 @@ resources:
   cfc_password:
     type: OS::Heat::RandomString
     properties:
-      character_classes: [{"class": lettersdigits, "min": 16}]
-      length: 32
+      character_classes: [{"class": lettersdigits, "min": 8}]
+      length: 8
 
   wait_condition:
     type: OS::Heat::WaitCondition
@@ -25,15 +25,16 @@ resources:
   wait_handle:
     type: OS::Heat::WaitConditionHandle
 
-  m_floating_ip:
-    type: OS::Nova::FloatingIP
-    properties:
-      pool: pub-net2
-  m_association:
-    type: OS::Nova::FloatingIPAssociation
-    properties:
-      floating_ip: { get_resource: m_floating_ip }
-      server_id: { get_resource: master }
+  master_port: 
+    type: OS::Neutron::Port 
+    properties: 
+      network: "icp-VXLAN-net"
+ 
+  master_floating_ip: 
+     type: OS::Neutron::FloatingIP 
+     properties: 
+       floating_network:  "pub-net2"
+       port_id: { get_resource: master_port } 
 
   master:
     type: OS::Nova::Server
@@ -44,9 +45,9 @@ resources:
       image: "icp-master"
       security_groups: [ all_open_ports ]
       flavor: m1.xlarge
+      networks: 
+         - port: { get_resource: master_port } 
       user_data_format: RAW
-      networks:
-        - network: icp-VXLAN-net
       user_data:
         str_replace:
           template: |
@@ -69,7 +70,7 @@ resources:
           params:
            $M_HOSTNAME: 
               list_join: ['-', [ {get_param: 'OS::stack_name'}, 'master']]
-           $M_FL: {get_attr: [m_floating_ip, ip]}
+           $M_FL: {get_attr: [master_floating_ip, floating_ip_address]}
            $W1_HOSTNAME: {get_attr: [worker1, name]}
            $W1_IP: {get_attr: [worker1, first_address]}
            $W2_HOSTNAME: {get_attr: [worker2, name]}
@@ -77,7 +78,7 @@ resources:
            $KEY: {get_attr: [ssh_key, private_key]}
            wc_notify: { get_attr: ['wait_handle', 'curl_cli'] }
            $cfc_username: admin
-           $cfc_password: admin
+           $cfc_password: {get_attr: [cfc_password, value]}
   worker1:
     type: OS::Nova::Server
     properties:
@@ -116,7 +117,7 @@ outputs:
       value: { get_attr: [master, name] }
   Master_floating_IP:
     description: Floating IP address of master
-    value: { get_attr: [m_floating_ip, ip]}
+    value: { get_attr: [master_floating_ip, floating_ip_address]}
   Master_IP:
       description: Internal IP address of master
       value: { get_attr: [master, first_address] }
@@ -125,7 +126,7 @@ outputs:
       value: admin
   ICp_password:
       description: Password for ICp admin user
-      value: admin
+      value: {get_attr: [cfc_password, value]}
   Worker2_hostname:
       description: Hostname of worker2
       value: { get_attr: [worker2, name] }
