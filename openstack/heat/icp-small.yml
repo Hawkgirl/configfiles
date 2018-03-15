@@ -29,6 +29,7 @@ resources:
     type: OS::Neutron::Port 
     properties: 
       network: "icp-VXLAN-net"
+      security_groups: [ all_open_ports ]
  
   master_floating_ip: 
      type: OS::Neutron::FloatingIP 
@@ -44,7 +45,6 @@ resources:
       key_name: { get_resource: ssh_key }
       config_drive: True
       image: "icp-master"
-      security_groups: [ all_open_ports ]
       flavor: m1.xlarge
       user_data_format: RAW
       networks: 
