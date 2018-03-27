@@ -1,0 +1,152 @@
+heat_template_version: 2016-04-08
+
+description: Medium ICpv2.1.0 cluster with 1 master and 3 worker nodes deployed
+
+resources:
+  ssh_key:
+    type: OS::Nova::KeyPair
+    properties:
+      save_private_key: True
+      name: 
+           list_join: ['_', [ {get_param: 'OS::stack_name'}, 'key1']]
+
+  cfc_password:
+    type: OS::Heat::RandomString
+    properties:
+      character_classes: [{"class": lettersdigits, "min": 8}]
+      length: 8
+
+  wait_condition:
+    type: OS::Heat::WaitCondition
+    properties:
+      handle: {get_resource: wait_handle}
+      timeout: 12000
+
+  wait_handle:
+    type: OS::Heat::WaitConditionHandle
+
+  master_port: 
+    type: OS::Neutron::Port 
+    properties: 
+      network: "icp-VXLAN-net"
+      security_groups: [ all_open_ports ]
+ 
+  master_floating_ip: 
+     type: OS::Neutron::FloatingIP 
+     properties: 
+       floating_network:  "pub-net2"
+       port_id: { get_resource: master_port } 
+
+  master:
+    type: OS::Nova::Server
+    properties:
+      name: 
+           list_join: ['_', [ {get_param: 'OS::stack_name'}, 'master']]
+      key_name: { get_resource: ssh_key }
+      image: "icp-master"
+      flavor: c16.r20.d150
+      availability_zone: internal-disks-az
+      networks: 
+         - port: { get_resource: master_port } 
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash
+            sudo -s
+            export DOCKER_CLIENT_TIMEOUT=240
+            echo "$KEY" > /home/ubuntu/cfc_shell/power-cfc-new.pem
+            chmod 400 /home/ubuntu/cfc_shell/power-cfc-new.pem
+            M_IP=$(ip route get 8.8.8.8 | awk '{print $NF; exit}')
+            WORKERS=($W1_HOSTNAME $W1_IP  $W2_HOSTNAME $W2_IP $W3_HOSTNAME $W2_IP)
+            chmod +x /home/ubuntu/cfc_setup.sh
+            chmod +x /home/ubuntu/cfc_shell/*.sh
+            ./home/ubuntu/cfc_setup.sh $M_HOSTNAME $M_FL $M_IP $cfc_username $cfc_password ${WORKERS[@]}
+            ret_code=$?
+            if [ $ret_code == 0 ]; then
+            wc_notify --insecure --data-binary '{"status": "SUCCESS"}'
+            else
+            wc_notify --insecure --data-binary '{"status": "FAILURE"}'
+            fi
+          params:
+           $M_HOSTNAME: 
+              list_join: ['-', [ {get_param: 'OS::stack_name'}, 'master']]
+           $M_FL: {get_attr: [master_floating_ip, floating_ip_address]}
+           $W1_HOSTNAME: {get_attr: [worker1, name]}
+           $W1_IP: {get_attr: [worker1, first_address]}
+           $W2_HOSTNAME: {get_attr: [worker2, name]}
+           $W2_IP: {get_attr: [worker2, first_address]}
+           $W3_HOSTNAME: {get_attr: [worker3, name]}
+           $W3_IP: {get_attr: [worker3, first_address]}
+           $KEY: {get_attr: [ssh_key, private_key]}
+           wc_notify: { get_attr: ['wait_handle', 'curl_cli'] }
+           $cfc_username: admin
+           $cfc_password: {get_attr: [cfc_password, value]}
+  worker1:
+    type: OS::Nova::Server
+    properties:
+      name:
+        list_join: ['_', [ {get_param: 'OS::stack_name'}, 'worker1']]
+      key_name: { get_resource: ssh_key }
+      image: "icp-worker"
+      security_groups: [ all_open_ports ]
+      flavor: m1.xlarge
+      availability_zone: internal-disks-az
+      networks:
+        - network: icp-VXLAN-net
+  worker2:
+    type: OS::Nova::Server
+    properties:
+      name:
+        list_join: ['-', [ {get_param: 'OS::stack_name'}, 'worker2']]
+      key_name: { get_resource: ssh_key }
+      image: "icp-worker"
+      security_groups: [ all_open_ports ]
+      flavor: m1.xlarge
+      availability_zone: internal-disks-az
+      networks:
+        - network: icp-VXLAN-net
+  worker3:
+    type: OS::Nova::Server
+    properties:
+      name:
+        list_join: ['-', [ {get_param: 'OS::stack_name'}, 'worker3']]
+      key_name: { get_resource: ssh_key }
+      image: "icp-worker"
+      security_groups: [ all_open_ports ]
+      flavor: m1.xlarge
+      availability_zone: internal-disks-az
+      networks:
+        - network: icp-VXLAN-net
+
+outputs:
+  Private_key:
+    description: Private key
+    value: { get_attr: [ssh_key, private_key] }
+  Worker1_hostname:
+      description: Hostname of worker1
+      value: { get_attr: [worker1, name] }
+  Worker1_IP:
+    description: IP address of worker1
+    value: { get_attr: [worker1, first_address] }
+  Master_hostname:
+      description: Hostname of master
+      value: { get_attr: [master, name] }
+  Master_floating_IP:
+    description: Floating IP address of master
+    value: { get_attr: [master_floating_ip, floating_ip_address]}
+  Master_IP:
+      description: Internal IP address of master
+      value: { get_attr: [master, first_address] }
+  ICp_username:
+      description: Username for ICp admin user
+      value: admin
+  ICp_password:
+      description: Password for ICp admin user
+      value: {get_attr: [cfc_password, value]}
+  Worker2_hostname:
+      description: Hostname of worker2
+      value: { get_attr: [worker2, name] }
+  Worker2_IP:
+      description: IP address of worker2
+      value: { get_attr: [worker2, first_address] }
