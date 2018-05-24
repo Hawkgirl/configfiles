@@ -1,0 +1,14 @@
+version: '2'
+services:
+  nvidia-container:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: 
+        - ssh_password=${ssh_password}
+    ports:
+      - "${ssh_port}:22"
+    network_mode: bridge
+    devices:
+      - /dev/nvidiactl
+      - /dev/nvidia-uvm
