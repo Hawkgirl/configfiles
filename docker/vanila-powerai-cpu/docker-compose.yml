@@ -8,4 +8,5 @@ services:
         - ssh_password=${ssh_password}
     ports:
       - "${ssh_port}:22"
+      - "8888:8888"
     network_mode: bridge

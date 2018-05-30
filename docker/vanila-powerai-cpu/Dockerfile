@@ -16,5 +16,8 @@ RUN echo "export CUDA_PKG_VERSION=8-0=8.0.61-1" >> /etc/profile
 RUN echo "export LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64" >> /etc/profile
 RUN echo "export LIBRARY_PATH=/usr/local/cuda/lib64/stubs" >> /etc/profile
 
+RUN rm -rf /tmp/*
 EXPOSE 22
-CMD ["/usr/sbin/sshd", "-D"]
+EXPOSE 8888
+COPY myscript.sh myscript.sh
+ENTRYPOINT ./myscript.sh
