@@ -1,0 +1,11 @@
+version: '2'
+services:
+  simple-container:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - ssh_password=${ssh_password}
+    ports:
+      - "${ssh_port}:22"
+    network_mode: bridge
