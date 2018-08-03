@@ -1,4 +1,6 @@
 FROM fbarilla/powerai-r5-pdp
+#remove bash on this image as it spoils PATH env varible
+RUN rm /root/.bashrc
 ARG ssh_password=root123
 RUN echo "root:${ssh_password}" | chpasswd
 RUN sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config

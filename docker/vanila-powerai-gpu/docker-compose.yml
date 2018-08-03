@@ -8,7 +8,16 @@ services:
         - ssh_password=${ssh_password}
     ports:
       - "${ssh_port}:22"
+    volumes:
+      - nvidia_vol:/usr/local/nvidia:ro
     network_mode: bridge
     devices:
       - /dev/nvidiactl
       - /dev/nvidia-uvm
+      - /dev/nvidia1
+
+volumes:
+  nvidia_vol:
+    external:
+      driver: nvidia-docker
+      name: nvidia_driver_390.46
