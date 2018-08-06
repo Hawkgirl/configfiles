@@ -1,6 +1,6 @@
 FROM fbarilla/powerai-r5-pdp
-#remove bash on this image as it spoils PATH env varible
-RUN rm /root/.bashrc
+#remove PATH line in bashrc on this image as it spoils PATH env varible
+RUN sed -i '/PATH/d' /root/.bashrc
 ARG ssh_password=root123
 RUN echo "root:${ssh_password}" | chpasswd
 RUN sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -9,6 +9,7 @@ RUN sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/s
 RUN sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd
 RUN ssh-keygen -A
 
+ADD id_rsa.pub /root/.ssh/authorized_keys
 ENV NOTVISIBLE "in users profile"
 RUN echo "export VISIBLE=now" >> /etc/profile
 
