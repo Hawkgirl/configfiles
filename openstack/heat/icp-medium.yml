@@ -69,7 +69,7 @@ resources:
             fi
           params:
            $M_HOSTNAME: 
-              list_join: ['-', [ {get_param: 'OS::stack_name'}, 'master']]
+              list_join: ['_', [ {get_param: 'OS::stack_name'}, 'master']]
            $M_FL: {get_attr: [master_floating_ip, floating_ip_address]}
            $W1_HOSTNAME: {get_attr: [worker1, name]}
            $W1_IP: {get_attr: [worker1, first_address]}
