@@ -1,0 +1,241 @@
+heat_template_version: 2016-04-08
+
+description: Medium ICpv2.1.0 cluster with 1 master and N worker nodes deployed
+
+parameters:
+  project_name:
+   type: string
+   description: 'project name'
+  external_net:
+    type: string
+    description:  'External network for internet'
+  worker_count:
+    type: number
+    description: 'Number of worker VMs/Nodes'
+  worker_flavor:
+    type: string
+    description: 'Worker flavor'
+    default: "m1.2xlarge"
+
+resources:
+  icp_key_pair:
+    type: OS::Nova::KeyPair
+    properties:
+      name:
+        list_join: ['-', [ {get_param: project_name}, 'icp-key']]
+      save_private_key: True
+
+  cfc_password:
+    type: OS::Heat::RandomString
+    properties:
+      character_classes: [{"class": lettersdigits, "min": 8}]
+      length: 8
+
+  wait_condition:
+    type: OS::Heat::WaitCondition
+    properties:
+      handle: {get_resource: wait_handle}
+      timeout: 12000
+
+  wait_handle:
+    type: OS::Heat::WaitConditionHandle
+
+  icp_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name:
+        list_join: ['-', [ {get_param: project_name}, 'secgroup-project']]
+      rules: [
+        {remote_mode: remote_group_id},
+        {remote_mode: remote_group_id,
+        ethertype: IPv6} ]
+
+  master_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name:
+        list_join: ['-', [ {get_param: project_name}, 'secgroup-master']]
+      rules: [
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 22,
+        port_range_max: 22},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 8080,
+        port_range_max: 8080},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 8443,
+        port_range_max: 8443},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 80,
+        port_range_max: 80},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: icmp},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 443,
+        port_range_max: 443},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 8181,
+        port_range_max: 8181},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 18080,
+        port_range_max: 18080},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 8743,
+        port_range_max: 8743},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 5044,
+        port_range_max: 5044},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 5046,
+        port_range_max: 5046},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 9200,
+        port_range_max: 9200},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 9300,
+        port_range_max: 9300},
+        {remote_ip_prefix: 172.29.96.0/23,
+        protocol: tcp,
+        port_range_min: 8500,
+        port_range_max: 8500},
+        {remote_ip_prefix: 172.29.96.0/23,
+        protocol: tcp,
+        port_range_min: 30000,
+        port_range_max: 32767},
+        {remote_ip_prefix: 172.29.96.0/23,
+        protocol: udp,
+        port_range_min: 30000,
+        port_range_max: 32767} ]
+
+  master_port:
+    type: OS::Neutron::Port
+    properties:
+      name:
+        list_join: ['-', [ {get_param: project_name}, 'master-port']]
+      network:
+        list_join: ['-', [ {get_param: project_name}, 'VXLAN-net']]
+      security_groups: [
+        { get_resource: icp_security_group },
+        { get_resource: master_security_group } ]
+      fixed_ips:
+        - subnet_id: { list_join: ['-', [ {get_param: project_name}, 'priv-subnet']] }
+
+  master_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: external_net }
+      port_id: { get_resource: master_port }
+
+  master:
+    type: OS::Nova::Server
+    properties:
+      name:
+           list_join: ['-', [ {get_param: project_name}, 'master']]
+      key_name:
+        get_resource: icp_key_pair
+      config_drive: False
+      image: "icpmaster311"
+      flavor: m1.2xlarge
+      user_data_format: RAW
+      networks:
+         - port: { get_resource: master_port }
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash
+            sudo -s
+            export DOCKER_CLIENT_TIMEOUT=240
+            echo "172.31.250.1 devops-ctl-vip.isv.ihost.com" >> /etc/hosts
+            echo "$KEY" > /home/ubuntu/cfc_shell/power-cfc-new.pem
+            chmod 400 /home/ubuntu/cfc_shell/power-cfc-new.pem
+            M_IP=$(ip route get 8.8.8.8 | awk '{print $NF; exit}')
+            read -r -a WX_HOSTNAMES_ARR <<< "$WX_HOSTNAMES"
+            read -r -a WX_IPS_ARR <<< "$WX_IPS"
+            declare -a WORKERS
+            workerIndex=0
+            for index in ${!WX_HOSTNAMES_ARR[*]}; do
+              WORKERS[$workerIndex]=${WX_HOSTNAMES_ARR[$index]}
+              let "workerIndex++"
+              WORKERS[$workerIndex]=${WX_IPS_ARR[$index]}
+              let "workerIndex++"
+            done
+            export WORKERS=(${WORKERS[@]//[,\[\]]})
+            chmod +x /home/ubuntu/cfc_setup.sh
+            chmod +x /home/ubuntu/cfc_shell/*.sh
+            ./home/ubuntu/cfc_setup.sh $M_HOSTNAME $M_FL $M_IP $cfc_username $cfc_password ${WORKERS[@]}
+            ret_code=$?
+            if [ $ret_code == 0 ]; then
+            wc_notify --insecure --data-binary '{"status": "SUCCESS"}'
+            else
+            wc_notify --insecure --data-binary '{"status": "FAILURE"}'
+            fi
+          params:
+           $M_HOSTNAME:
+              list_join: ['-', [ {get_param: project_name}, 'master']]
+           $M_FL: { get_attr: [master_floating_ip, floating_ip_address]}
+           $KEY: {get_attr: [icp_key_pair, private_key]}
+           wc_notify: { get_attr: ['wait_handle', 'curl_cli'] }
+           $cfc_username: admin
+           $cfc_password: {get_attr: [cfc_password, value]}
+           $WX_HOSTNAMES: {get_attr: [workerresources, name]}
+           $WX_IPS: {get_attr: [workerresources, first_address]}
+
+  workerresources:
+    type: OS::Heat::ResourceGroup
+    properties:
+      count: { get_param: worker_count }
+      resource_def:
+        type: OS::Nova::Server
+        properties:
+          key_name:
+            get_resource: icp_key_pair
+          image: "icpworker311"
+          flavor: { get_param: worker_flavor }
+          config_drive: False
+          security_groups:
+            - { get_resource: icp_security_group }
+          name:
+            str_replace:
+              template: $WRKNAME%index%
+              params:
+                $WRKNAME: { list_join: ['-', [ {get_param: project_name}, 'worker']] }
+          networks:
+            - subnet: { list_join: ['-', [ {get_param: project_name}, 'priv-subnet']] }
+
+outputs:
+  Private_key:
+    description: Private key
+    value: { get_attr: [icp_key_pair, private_key] }
+  Worker_hostnames:
+      description: Worker hostnames
+      value: {get_attr: [workerresources, name]}
+  Worker_IPs:
+    description: Worker IP addresses
+    value: {get_attr: [workerresources, first_address]}
+  Master_hostname:
+      description: Hostname of master
+      value: { get_attr: [master, name] }
+  Master_floating_IP:
+    description: Floating IP address of master
+    value: { get_attr: [master_floating_ip, floating_ip_address]}
+  Master_IP:
+      description: Internal IP address of master
+      value: { get_attr: [master, first_address] }
+  ICp_username:
+      description: Username for ICp admin user
+      value: admin
+  ICp_password:
+      description: Password for ICp admin user
+      value: {get_attr: [cfc_password, value]}
